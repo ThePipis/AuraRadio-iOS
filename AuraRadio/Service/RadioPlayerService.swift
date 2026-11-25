@@ -12,6 +12,7 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
     @Published var isLoading: Bool = false
     @Published var liveTitle: String = ""
     @Published var isAdPlaying: Bool = false
+    @Published var adFilterStatus: String = ""
     @Published var volume: Float = 1.0
     @Published var errorMessage: String?
 
@@ -318,18 +319,18 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
                 if let str = item.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !str.isEmpty {
                     let lower = str.lowercased()
                     if adKeywords.contains(where: { lower.contains($0) }) {
-                        isAdPlaying = true
-                        adFilterStatus = "Anuncio silenciado"
-                        player?.volume = 0.0
+                        self.isAdPlaying = true
+                        self.adFilterStatus = "Anuncio silenciado"
+                        self.player?.volume = 0.0
                     } else {
-                        if isAdPlaying {
-                            prerollTimer?.invalidate()
-                            isAdPlaying = false
-                            adFilterStatus = ""
-                            player?.volume = volume
+                        if self.isAdPlaying {
+                            self.prerollTimer?.invalidate()
+                            self.isAdPlaying = false
+                            self.adFilterStatus = ""
+                            self.player?.volume = self.volume
                         }
-                        liveTitle = str
-                        updateNowPlayingInfo()
+                        self.liveTitle = str
+                        self.updateNowPlayingInfo()
                     }
                 }
             }
