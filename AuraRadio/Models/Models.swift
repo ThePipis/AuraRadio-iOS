@@ -59,3 +59,28 @@ struct NetworkItem: Identifiable, Hashable {
     let name: String
     let stationsCount: Int
 }
+
+struct SongHistoryItem: Identifiable, Codable, Hashable {
+    let id: String
+    let title: String
+    let artist: String
+    let stationName: String
+    let timestamp: TimeInterval
+}
+
+enum AppRoute: Hashable {
+    case countries
+    case categories
+    case networks
+    case popular
+    case favorites
+    case recent
+    case blacklist
+    case songHistory
+    case songCollection
+    case userStations
+    case recordings
+    case alarms
+    case equalizer
+    case settings
+}

@@ -4,133 +4,313 @@ struct HomeView: View {
     @ObservedObject var player = RadioPlayerService.shared
     @ObservedObject var store = FavoritesStore.shared
 
+    @State private var path = NavigationPath()
     @State private var searchQuery = ""
     @State private var showFullPlayer = false
+    @State private var showDrawer = false
+    @State private var showSleepTimer = false
     @State private var suggested: [Station] = []
     @State private var recents: [Station] = []
 
     var body: some View {
-        NavigationStack {
-            ZStack(alignment: .bottom) {
-                Color.darkBackground.ignoresSafeArea()
+        ZStack(alignment: .leading) {
+            VStack(spacing: 0) {
+                NavigationStack(path: $path) {
+                    ZStack {
+                        Color.darkBackground.ignoresSafeArea()
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        // Explorar
-                        Text("Explorar")
-                            .font(.headline)
-                            .foregroundColor(.textPrimary)
-                            .padding(.horizontal)
-
-                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                            NavigationLink(destination: CountriesGridView()) {
-                                ExploreTile(icon: "globe", title: "Países y Regiones", color: .neonCyan)
-                            }
-                            NavigationLink(destination: CategoriesListView()) {
-                                ExploreTile(icon: "music.note.list", title: "Categorías", color: .green)
-                            }
-                            NavigationLink(destination: PopularStationsView()) {
-                                ExploreTile(icon: "flame.fill", title: "Emisoras Populares", color: .orange)
-                            }
-                            NavigationLink(destination: FavoritesListView()) {
-                                ExploreTile(icon: "heart.fill", title: "Mis Favoritas", color: .accentRed)
-                            }
-                        }
-                        .padding(.horizontal)
-
-                        // Emisoras Sugeridas
-                        if !suggested.isEmpty {
-                            Text("Emisoras Sugeridas")
-                                .font(.headline)
-                                .foregroundColor(.textPrimary)
-                                .padding(.horizontal)
-
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 12) {
-                                    ForEach(suggested) { st in
-                                        StationHorizontalCard(station: st) {
-                                            player.playStation(st, list: suggested)
-                                        }
-                                    }
-                                }
-                                .padding(.horizontal)
-                            }
-                        }
-
-                        // Escuchado Recientemente
-                        if !recents.isEmpty {
-                            HStack {
-                                Text("Escuchado Recientemente")
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 20) {
+                                // 1. Explorar (5 opciones como en Android, sin texto truncado)
+                                Text("Explorar")
                                     .font(.headline)
                                     .foregroundColor(.textPrimary)
-                                Spacer()
-                                Button("Limpiar") {
-                                    store.clearRecents()
-                                    refreshData()
-                                }
-                                .font(.caption)
-                                .foregroundColor(.neonCyan)
-                            }
-                            .padding(.horizontal)
+                                    .padding(.horizontal)
 
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 12) {
-                                    ForEach(recents) { st in
-                                        StationHorizontalCard(station: st) {
-                                            player.playStation(st, list: recents)
-                                        }
+                                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                                    NavigationLink(value: AppRoute.countries) {
+                                        ExploreTile(icon: "globe", title: "Países y Regiones", color: .neonCyan)
+                                    }
+                                    NavigationLink(value: AppRoute.categories) {
+                                        ExploreTile(icon: "music.note.list", title: "Categorías", color: .green)
+                                    }
+                                    NavigationLink(value: AppRoute.networks) {
+                                        ExploreTile(icon: "antenna.radiowaves.left.and.right", title: "Redes de Emisoras", color: .purple)
+                                    }
+                                    NavigationLink(value: AppRoute.popular) {
+                                        ExploreTile(icon: "flame.fill", title: "Emisoras Populares", color: .orange)
+                                    }
+                                    NavigationLink(value: AppRoute.favorites) {
+                                        ExploreTile(icon: "heart.fill", title: "Mis Favoritas", color: .accentRed)
                                     }
                                 }
                                 .padding(.horizontal)
-                            }
-                        }
 
-                        // Gestión / Lista Negra
-                        Text("Gestión")
-                            .font(.headline)
-                            .foregroundColor(.textPrimary)
-                            .padding(.horizontal)
+                                // 2. Emisoras Sugeridas
+                                if !suggested.isEmpty {
+                                    Text("Emisoras Sugeridas")
+                                        .font(.headline)
+                                        .foregroundColor(.textPrimary)
+                                        .padding(.horizontal)
 
-                        NavigationLink(destination: BlacklistView()) {
-                            HStack {
-                                Image(systemName: "nosign")
-                                    .foregroundColor(.accentRed)
-                                Text("Lista Negra de Emisoras (\(store.blacklistedStations.count))")
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        HStack(spacing: 12) {
+                                            ForEach(suggested) { st in
+                                                StationHorizontalCard(station: st) {
+                                                    player.playStation(st, list: suggested)
+                                                }
+                                            }
+                                        }
+                                        .padding(.horizontal)
+                                    }
+                                }
+
+                                // 3. Personalización (2x5 grilla igual que Android)
+                                Text("Personalización")
+                                    .font(.headline)
                                     .foregroundColor(.textPrimary)
-                                    .fontWeight(.semibold)
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .foregroundColor(.textSecondary)
+                                    .padding(.horizontal)
+
+                                VStack(spacing: 6) {
+                                    HStack(spacing: 8) {
+                                        PersonalizationTile(icon: "heart.fill", title: "Favoritas", color: .accentRed) {
+                                            path.append(AppRoute.favorites)
+                                        }
+                                        PersonalizationTile(icon: "person.wave.2", title: "Emisoras de Usuario", color: .neonCyan) {
+                                            path.append(AppRoute.userStations)
+                                        }
+                                    }
+                                    HStack(spacing: 8) {
+                                        PersonalizationTile(icon: "record.circle", title: "Grabaciones", color: .orange) {
+                                            path.append(AppRoute.recordings)
+                                        }
+                                        PersonalizationTile(icon: "alarm", title: "Despertadores", color: .yellow) {
+                                            path.append(AppRoute.alarms)
+                                        }
+                                    }
+                                    HStack(spacing: 8) {
+                                        PersonalizationTile(icon: "timer", title: "Temporizador de Sueño", color: .neonCyan) {
+                                            showSleepTimer = true
+                                        }
+                                        PersonalizationTile(icon: "calendar.badge.clock", title: "Horarios", color: .green) {
+                                            path.append(AppRoute.alarms)
+                                        }
+                                    }
+                                    HStack(spacing: 8) {
+                                        PersonalizationTile(icon: "books.vertical", title: "Colección de Títulos", color: .purple) {
+                                            path.append(AppRoute.songCollection)
+                                        }
+                                        PersonalizationTile(icon: "music.note.list", title: "Historial de Títulos", color: .neonCyan) {
+                                            path.append(AppRoute.songHistory)
+                                        }
+                                    }
+                                    HStack(spacing: 8) {
+                                        PersonalizationTile(icon: "slider.vertical.3", title: "Ecualizador de Audio", color: .green) {
+                                            path.append(AppRoute.equalizer)
+                                        }
+                                        PersonalizationTile(icon: "gearshape.fill", title: "Ajustes", color: .textSecondary) {
+                                            path.append(AppRoute.settings)
+                                        }
+                                    }
+                                }
+                                .padding(10)
+                                .background(Color.darkSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: 16))
+                                .padding(.horizontal)
+
+                                // 4. Escuchado Recientemente
+                                if !recents.isEmpty {
+                                    HStack {
+                                        Text("Escuchado Recientemente")
+                                            .font(.headline)
+                                            .foregroundColor(.textPrimary)
+                                        Spacer()
+                                        Button("Limpiar") {
+                                            store.clearRecents()
+                                            refreshData()
+                                        }
+                                        .font(.caption)
+                                        .foregroundColor(.neonCyan)
+                                    }
+                                    .padding(.horizontal)
+
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        HStack(spacing: 12) {
+                                            ForEach(recents) { st in
+                                                StationHorizontalCard(station: st) {
+                                                    player.playStation(st, list: recents)
+                                                }
+                                            }
+                                        }
+                                        .padding(.horizontal)
+                                    }
+                                }
+
+                                // 5. Uso de Datos (igual que Android con menú de reinicio)
+                                HStack {
+                                    Text("Uso de Datos")
+                                        .font(.headline)
+                                        .foregroundColor(.textPrimary)
+                                    Spacer()
+                                    Menu {
+                                        Button(role: .destructive, action: { store.resetDataUsage() }) {
+                                            Label("Eliminar las métricas", systemImage: "arrow.counterclockwise")
+                                        }
+                                    } label: {
+                                        Image(systemName: "ellipsis")
+                                            .foregroundColor(.textSecondary)
+                                            .padding(6)
+                                    }
+                                }
+                                .padding(.horizontal)
+
+                                HStack {
+                                    VStack(spacing: 4) {
+                                        Text("WiFi")
+                                            .font(.caption)
+                                            .foregroundColor(.textSecondary)
+                                        Text(FavoritesStore.formatBytes(store.wifiBytes))
+                                            .font(.headline)
+                                            .foregroundColor(.textPrimary)
+                                    }
+                                    .frame(maxWidth: .infinity)
+
+                                    Divider()
+                                        .frame(height: 34)
+                                        .background(Color.darkSurfaceVariant)
+
+                                    VStack(spacing: 4) {
+                                        Text("Datos Móviles")
+                                            .font(.caption)
+                                            .foregroundColor(.textSecondary)
+                                        Text(FavoritesStore.formatBytes(store.mobileBytes))
+                                            .font(.headline)
+                                            .foregroundColor(.textPrimary)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                }
+                                .padding(.vertical, 14)
+                                .background(Color.darkSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: 14))
+                                .padding(.horizontal)
+
+                                // 6. Gestión / Lista Negra
+                                Text("Gestión")
+                                    .font(.headline)
+                                    .foregroundColor(.textPrimary)
+                                    .padding(.horizontal)
+
+                                NavigationLink(value: AppRoute.blacklist) {
+                                    HStack {
+                                        Image(systemName: "nosign")
+                                            .foregroundColor(.accentRed)
+                                        Text("Lista Negra de Emisoras (\(store.blacklistedStations.count))")
+                                            .foregroundColor(.textPrimary)
+                                            .fontWeight(.semibold)
+                                        Spacer()
+                                        Image(systemName: "chevron.right")
+                                            .foregroundColor(.textSecondary)
+                                    }
+                                    .padding()
+                                    .background(Color.darkSurface)
+                                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                                    .padding(.horizontal)
+                                }
                             }
-                            .padding()
-                            .background(Color.darkSurface)
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
-                            .padding(.horizontal)
+                            .padding(.vertical)
                         }
                     }
-                    .padding(.vertical)
-                    .padding(.bottom, player.currentStation != nil ? 85 : 20)
+                    .navigationTitle("AuraRadio")
+                    .toolbarColorScheme(.dark, for: .navigationBar)
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarLeading) {
+                            Button(action: {
+                                withAnimation(.easeInOut(duration: 0.25)) {
+                                    showDrawer.toggle()
+                                }
+                            }) {
+                                Image(systemName: "line.3.horizontal")
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .foregroundColor(.textPrimary)
+                            }
+                        }
+                    }
+                    .searchable(text: $searchQuery, prompt: "Buscar entre 35.000 emisoras…")
+                    .overlay {
+                        if !searchQuery.isEmpty {
+                            SearchResultsOverlay(query: searchQuery)
+                        }
+                    }
+                    .navigationDestination(for: AppRoute.self) { route in
+                        switch route {
+                        case .countries: CountriesGridView()
+                        case .categories: CategoriesListView()
+                        case .networks: NetworksGridView()
+                        case .popular: PopularStationsView()
+                        case .favorites: FavoritesListView()
+                        case .recent: RecentStationsView()
+                        case .blacklist: BlacklistView()
+                        case .songHistory: SongHistoryView()
+                        case .songCollection: SongCollectionView()
+                        case .userStations: UserStationsView()
+                        case .recordings:
+                            FeatureStatusView(title: "Grabaciones", icon: "record.circle", description: "Las grabaciones de emisoras en directo estarán disponibles próximamente en iOS.")
+                        case .alarms:
+                            FeatureStatusView(title: "Despertadores y Horarios", icon: "alarm", description: "Programa alarmas con tu emisora favorita para despertar con radio en vivo.")
+                        case .equalizer:
+                            FeatureStatusView(title: "Ecualizador de Audio", icon: "slider.vertical.3", description: "Audio optimizado con perfil HD nativo de iOS y soporte AirPlay.")
+                        case .settings:
+                            FeatureStatusView(title: "Ajustes de AuraRadio", icon: "gearshape.fill", description: "Versión 2.10.1 iOS • Supresor de publicidad AdsWizz activo • CarPlay y AirPlay habilitados.")
+                        }
+                    }
                 }
 
+                // MiniPlayerDock SIEMPRE visible en TODAS las pantallas cuando hay emisora activa
                 if player.currentStation != nil {
                     MiniPlayerDock(onTap: { showFullPlayer = true })
                 }
             }
-            .navigationTitle("AuraRadio")
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .searchable(text: $searchQuery, prompt: "Buscar entre 35.000 emisoras…")
-            .overlay {
-                if !searchQuery.isEmpty {
-                    SearchResultsOverlay(query: searchQuery)
-                }
+
+            // Menú Hamburguesa Lateral (Drawer)
+            if showDrawer {
+                Color.black.opacity(0.5)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            showDrawer = false
+                        }
+                    }
+
+                DrawerSidebarView(
+                    onSelectRoute: { route in
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            showDrawer = false
+                        }
+                        if let route = route {
+                            path = NavigationPath([route])
+                        } else {
+                            path = NavigationPath()
+                        }
+                    },
+                    onSleepTimer: {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            showDrawer = false
+                        }
+                        showSleepTimer = true
+                    }
+                )
+                .transition(.move(edge: .leading))
             }
-            .sheet(isPresented: $showFullPlayer) {
-                FullPlayerView()
-            }
-            .onAppear { refreshData() }
-            .onChange(of: store.blacklistedStations.count) { _ in refreshData() }
-            .onChange(of: store.recentIds) { _ in refreshData() }
         }
+        .sheet(isPresented: $showFullPlayer) {
+            FullPlayerView()
+        }
+        .sheet(isPresented: $showSleepTimer) {
+            SleepTimerSheet()
+        }
+        .onAppear { refreshData() }
+        .onChange(of: store.blacklistedStations.count) { _ in refreshData() }
+        .onChange(of: store.recentIds) { _ in refreshData() }
         .preferredColorScheme(.dark)
     }
 
@@ -151,15 +331,157 @@ struct ExploreTile: View {
             Image(systemName: icon)
                 .foregroundColor(color)
                 .font(.system(size: 18))
+                .frame(width: 22)
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.textPrimary)
-                .lineLimit(1)
-            Spacer()
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+                .multilineTextAlignment(.leading)
+            Spacer(minLength: 0)
         }
-        .padding(14)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, minHeight: 52)
         .background(Color.darkSurface)
         .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+}
+
+struct PersonalizationTile: View {
+    let icon: String
+    let title: String
+    let color: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .foregroundColor(color)
+                    .font(.system(size: 16))
+                    .frame(width: 22)
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.textPrimary)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background(Color.darkSurfaceVariant.opacity(0.45))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+    }
+}
+
+struct DrawerSidebarView: View {
+    let onSelectRoute: (AppRoute?) -> Void
+    let onSleepTimer: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.deepViolet)
+                        .frame(width: 42, height: 42)
+                    Image(systemName: "radio.fill")
+                        .foregroundColor(.neonCyan)
+                        .font(.system(size: 20))
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("AuraRadio")
+                        .font(.headline.bold())
+                        .foregroundColor(.textPrimary)
+                    Text("HD Global Streaming")
+                        .font(.caption)
+                        .foregroundColor(.neonCyan)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 20)
+
+            Divider().background(Color.darkSurfaceVariant)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    DrawerItem(icon: "speaker.wave.2.fill", title: "Ahora Escuchando") { onSelectRoute(nil) }
+                    DrawerItem(icon: "clock.arrow.circlepath", title: "Escuchado Recientemente") { onSelectRoute(.recent) }
+
+                    Divider().background(Color.darkSurfaceVariant).padding(.vertical, 6)
+
+                    DrawerItem(icon: "record.circle", title: "Grabaciones") { onSelectRoute(.recordings) }
+                    DrawerItem(icon: "person.wave.2", title: "Emisoras de Usuario") { onSelectRoute(.userStations) }
+                    DrawerItem(icon: "heart.fill", title: "Favoritas") { onSelectRoute(.favorites) }
+                    DrawerItem(icon: "books.vertical", title: "Colección de Títulos") { onSelectRoute(.songCollection) }
+                    DrawerItem(icon: "music.note.list", title: "Historial de Títulos") { onSelectRoute(.songHistory) }
+
+                    Divider().background(Color.darkSurfaceVariant).padding(.vertical, 6)
+
+                    DrawerItem(icon: "globe", title: "Países y Regiones") { onSelectRoute(.countries) }
+                    DrawerItem(icon: "music.quarternote.3", title: "Categorías") { onSelectRoute(.categories) }
+                    DrawerItem(icon: "antenna.radiowaves.left.and.right", title: "Redes de Emisoras") { onSelectRoute(.networks) }
+                    DrawerItem(icon: "flame.fill", title: "Emisoras Populares") { onSelectRoute(.popular) }
+                    DrawerItem(icon: "nosign", title: "Lista Negra") { onSelectRoute(.blacklist) }
+
+                    Divider().background(Color.darkSurfaceVariant).padding(.vertical, 6)
+
+                    DrawerItem(icon: "alarm", title: "Despertadores") { onSelectRoute(.alarms) }
+                    DrawerItem(icon: "timer", title: "Temporizador de Sueño") { onSleepTimer() }
+                    DrawerItem(icon: "slider.vertical.3", title: "Ecualizador de Audio") { onSelectRoute(.equalizer) }
+                    DrawerItem(icon: "gearshape.fill", title: "Ajustes") { onSelectRoute(.settings) }
+                }
+                .padding(.vertical, 8)
+            }
+        }
+        .frame(width: 280)
+        .background(Color.darkSurface.ignoresSafeArea())
+    }
+}
+
+struct DrawerItem: View {
+    let icon: String
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: icon)
+                    .foregroundColor(.neonCyan)
+                    .frame(width: 22)
+                Text(title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.textPrimary)
+                Spacer()
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+        }
+    }
+}
+
+struct RecentStationsView: View {
+    @ObservedObject var store = FavoritesStore.shared
+
+    var body: some View {
+        let blackIds = store.blacklistedIds
+        let visible = VRadioDatabase.shared.getStationsByIds(store.recentIds).filter { !blackIds.contains($0.id) }
+        List {
+            ForEach(visible) { st in
+                StationRow(station: st, list: visible)
+                    .listRowBackground(Color.darkBackground)
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Color.darkBackground)
+        .navigationTitle("Escuchado Recientemente")
     }
 }
 

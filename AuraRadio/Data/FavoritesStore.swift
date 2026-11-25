@@ -10,6 +10,11 @@ final class FavoritesStore: ObservableObject {
     @Published private(set) var recentCountries: [String] = []
     @Published private(set) var blacklistedStations: [Station] = []
     @Published private(set) var detectedCountryIso: String = ""
+    @Published private(set) var songHistory: [SongHistoryItem] = []
+    @Published private(set) var songCollection: [SongHistoryItem] = []
+    @Published private(set) var userStations: [Station] = []
+    @Published private(set) var wifiBytes: Int64 = 0
+    @Published private(set) var mobileBytes: Int64 = 0
 
     private init() {
         loadAll()
@@ -21,6 +26,11 @@ final class FavoritesStore: ObservableObject {
         recentCountries = defaults.stringArray(forKey: "recent_countries") ?? []
         blacklistedStations = decode([Station].self, key: "blacklist_json") ?? []
         detectedCountryIso = defaults.string(forKey: "detected_country_iso") ?? ""
+        songHistory = decode([SongHistoryItem].self, key: "song_history") ?? []
+        songCollection = decode([SongHistoryItem].self, key: "song_collection") ?? []
+        userStations = decode([Station].self, key: "user_stations") ?? []
+        wifiBytes = Int64(defaults.double(forKey: "wifi_bytes"))
+        mobileBytes = Int64(defaults.double(forKey: "mobile_bytes"))
     }
 
     private func decode<T: Decodable>(_ type: T.Type, key: String) -> T? {
@@ -140,5 +150,111 @@ final class FavoritesStore: ObservableObject {
             lines.append("")
         }
         return lines.joined(separator: "\n")
+    }
+
+    // MARK: - Historial y Colección de Títulos
+    func addSongHistory(title: String, artist: String, stationName: String) {
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanTitle.isEmpty else { return }
+        if let first = songHistory.first,
+           first.title.caseInsensitiveCompare(cleanTitle) == .orderedSame,
+           first.stationName.caseInsensitiveCompare(stationName) == .orderedSame {
+            return
+        }
+        let item = SongHistoryItem(
+            id: UUID().uuidString,
+            title: cleanTitle,
+            artist: artist.isEmpty ? stationName : artist,
+            stationName: stationName,
+            timestamp: Date().timeIntervalSince1970
+        )
+        var current = songHistory
+        current.insert(item, at: 0)
+        songHistory = Array(current.prefix(100))
+        encode(songHistory, key: "song_history")
+    }
+
+    func clearSongHistory() {
+        songHistory = []
+        encode(songHistory, key: "song_history")
+    }
+
+    @discardableResult
+    func toggleSongInCollection(_ item: SongHistoryItem) -> Bool {
+        var current = songCollection
+        if let idx = current.firstIndex(where: { $0.id == item.id || ($0.title == item.title && $0.stationName == item.stationName) }) {
+            current.remove(at: idx)
+            songCollection = current
+            encode(current, key: "song_collection")
+            return false
+        } else {
+            current.insert(item, at: 0)
+            songCollection = current
+            encode(current, key: "song_collection")
+            return true
+        }
+    }
+
+    func isSongSaved(_ item: SongHistoryItem) -> Bool {
+        songCollection.contains { $0.id == item.id || ($0.title == item.title && $0.stationName == item.stationName) }
+    }
+
+    // MARK: - Emisoras de Usuario
+    func addUserStation(name: String, url: String, genre: String = "Personalizada") {
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanUrl = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanName.isEmpty, !cleanUrl.isEmpty else { return }
+        let newId = -Int(Date().timeIntervalSince1970.truncatingRemainder(dividingBy: 1_000_000)) - Int.random(in: 1...999)
+        let st = Station(
+            id: newId,
+            name: cleanName,
+            url: cleanUrl,
+            favicon: "",
+            country: "Usuario",
+            location: "Personalizada",
+            genre: genre,
+            bitrate: 128,
+            codec: "STREAM",
+            website: "",
+            streamUserAgent: "",
+            streamReferer: ""
+        )
+        var current = userStations
+        current.insert(st, at: 0)
+        userStations = current
+        encode(current, key: "user_stations")
+    }
+
+    func removeUserStation(_ id: Int) {
+        userStations = userStations.filter { $0.id != id }
+        encode(userStations, key: "user_stations")
+    }
+
+    // MARK: - Uso de Datos
+    func addDataUsage(bytes: Int64, isWifi: Bool) {
+        guard bytes > 0 else { return }
+        if isWifi {
+            wifiBytes += bytes
+            defaults.set(Double(wifiBytes), forKey: "wifi_bytes")
+        } else {
+            mobileBytes += bytes
+            defaults.set(Double(mobileBytes), forKey: "mobile_bytes")
+        }
+    }
+
+    func resetDataUsage() {
+        wifiBytes = 0
+        mobileBytes = 0
+        defaults.set(0.0, forKey: "wifi_bytes")
+        defaults.set(0.0, forKey: "mobile_bytes")
+    }
+
+    static func formatBytes(_ bytes: Int64) -> String {
+        if bytes <= 0 { return "0 MB" }
+        let mb = Double(bytes) / (1024.0 * 1024.0)
+        if mb < 1024.0 {
+            return String(format: "%.1f MB", mb)
+        }
+        return String(format: "%.2f GB", mb / 1024.0)
     }
 }

@@ -16,8 +16,8 @@ struct FullPlayerView: View {
     @ObservedObject var player = RadioPlayerService.shared
     @ObservedObject var store = FavoritesStore.shared
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.horizontalSizeClass) private var hSize
     @Environment(\.verticalSizeClass) private var vSize
+    @State private var showSleepTimer = false
 
     var isLandscape: Bool {
         vSize == .compact
@@ -28,81 +28,107 @@ struct FullPlayerView: View {
             Color.darkBackground.ignoresSafeArea()
 
             if let station = player.currentStation {
-                VStack(spacing: 0) {
-                    // Top Bar
-                    HStack {
-                        Button(action: { dismiss() }) {
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 22, weight: .bold))
-                                .foregroundColor(.textPrimary)
-                        }
-                        Spacer()
-                        Text(station.streamFormatBadge)
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(.textPrimary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 6)
-                            .background(Color.darkSurfaceVariant)
-                            .clipShape(Capsule())
-                        Spacer()
-                        AirPlayPickerButton()
-                            .frame(width: 32, height: 32)
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, isLandscape ? 8 : 14)
+                GeometryReader { geo in
+                    let landscape = isLandscape || geo.size.width > geo.size.height
+                    let artSize = landscape
+                        ? min(geo.size.height * 0.48, geo.size.width * 0.28, 220)
+                        : min(geo.size.width * 0.50, geo.size.height * 0.28, 220)
 
-                    if isLandscape {
-                        HStack(spacing: 24) {
-                            stationInfoSection(station: station)
-                                .frame(maxWidth: .infinity)
-                            controlsSection(station: station)
-                                .frame(maxWidth: .infinity)
+                    VStack(spacing: 0) {
+                        // Top Bar
+                        HStack {
+                            Button(action: { dismiss() }) {
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 20, weight: .bold))
+                                    .foregroundColor(.textPrimary)
+                                    .padding(6)
+                            }
+                            Spacer()
+                            Text(station.streamFormatBadge)
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.textPrimary)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 5)
+                                .background(Color.darkSurfaceVariant)
+                                .clipShape(Capsule())
+                            Spacer()
+                            Button(action: { showSleepTimer = true }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "timer")
+                                        .font(.system(size: 18))
+                                    if player.sleepTimerRemainingMinutes > 0 {
+                                        Text("\(player.sleepTimerRemainingMinutes)m")
+                                            .font(.caption2.bold())
+                                    }
+                                }
+                                .foregroundColor(player.sleepTimerRemainingMinutes > 0 ? .neonCyan : .textPrimary)
+                                .padding(6)
+                            }
                         }
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, 12)
-                    } else {
-                        ScrollView(showsIndicators: false) {
-                            VStack(spacing: 16) {
-                                stationInfoSection(station: station)
-                                controlsSection(station: station)
+                        .padding(.horizontal, 20)
+                        .padding(.top, landscape ? 6 : 10)
+                        .padding(.bottom, landscape ? 4 : 8)
+
+                        if landscape {
+                            HStack(spacing: 24) {
+                                stationInfoSection(station: station, artSize: artSize, compact: true)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                controlsSection(station: station, compact: true)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                             }
                             .padding(.horizontal, 24)
-                            .padding(.bottom, 24)
+                            .padding(.bottom, 12)
+                        } else {
+                            VStack(spacing: 0) {
+                                Spacer(minLength: 4)
+                                stationInfoSection(station: station, artSize: artSize, compact: false)
+                                Spacer(minLength: 8)
+                                controlsSection(station: station, compact: false)
+                                Spacer(minLength: 8)
+                            }
+                            .padding(.horizontal, 22)
+                            .padding(.bottom, 12)
                         }
                     }
+                    .frame(width: geo.size.width, height: geo.size.height)
                 }
             }
+        }
+        .sheet(isPresented: $showSleepTimer) {
+            SleepTimerSheet()
         }
     }
 
     @ViewBuilder
-    private func stationInfoSection(station: Station) -> some View {
-        VStack(spacing: 12) {
+    private func stationInfoSection(station: Station, artSize: CGFloat, compact: Bool) -> some View {
+        VStack(spacing: compact ? 8 : 10) {
             Text(station.name)
-                .font(.system(size: isLandscape ? 20 : 22, weight: .bold))
+                .font(.system(size: compact ? 18 : 21, weight: .bold))
                 .foregroundColor(.textPrimary)
                 .lineLimit(1)
+                .minimumScaleFactor(0.8)
 
             AsyncImage(url: URL(string: station.favicon)) { phase in
                 switch phase {
                 case .success(let image):
-                    image.resizable().scaledToFit().padding(14)
+                    image.resizable().scaledToFit().padding(12)
                 default:
                     Image(systemName: "radio.fill")
-                        .font(.system(size: 64))
+                        .font(.system(size: artSize * 0.35))
                         .foregroundColor(.deepViolet)
                 }
             }
-            .frame(width: isLandscape ? 160 : 220, height: isLandscape ? 160 : 220)
+            .frame(width: artSize, height: artSize)
             .background(Color.white)
-            .clipShape(RoundedRectangle(cornerRadius: 22))
+            .clipShape(RoundedRectangle(cornerRadius: 20))
             .shadow(radius: 8)
 
             Text(station.subtitleInfo)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(.textPrimary)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 5)
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
                 .background(Color.darkSurfaceVariant)
                 .clipShape(Capsule())
 
@@ -120,10 +146,10 @@ struct FullPlayerView: View {
     }
 
     @ViewBuilder
-    private func controlsSection(station: Station) -> some View {
+    private func controlsSection(station: Station, compact: Bool) -> some View {
         let isFav = store.isFavorite(station.id)
 
-        VStack(spacing: isLandscape ? 14 : 20) {
+        VStack(spacing: compact ? 12 : 16) {
             // Volume Slider
             HStack(spacing: 10) {
                 Image(systemName: "speaker.fill")
@@ -160,21 +186,21 @@ struct FullPlayerView: View {
                 }) {
                     Image(systemName: "stop.fill")
                         .foregroundColor(.textSecondary)
-                        .padding(8)
+                        .padding(6)
                 }
             }
 
             // Main Playback Controls
-            HStack(spacing: 28) {
+            HStack(spacing: 24) {
                 Button(action: { store.toggleFavorite(station) }) {
                     Image(systemName: isFav ? "heart.fill" : "heart")
-                        .font(.system(size: 24))
+                        .font(.system(size: 22))
                         .foregroundColor(isFav ? .accentRed : .textPrimary)
                 }
 
                 Button(action: { player.playPrev() }) {
                     Image(systemName: "backward.end.fill")
-                        .font(.system(size: 30))
+                        .font(.system(size: 28))
                         .foregroundColor(.textPrimary)
                 }
 
@@ -182,12 +208,12 @@ struct FullPlayerView: View {
                     ZStack {
                         Circle()
                             .fill(Color.darkSurfaceVariant)
-                            .frame(width: 70, height: 70)
+                            .frame(width: compact ? 58 : 66, height: compact ? 58 : 66)
                         if player.isLoading {
                             ProgressView().tint(.neonCyan)
                         } else {
                             Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 32))
+                                .font(.system(size: compact ? 26 : 30))
                                 .foregroundColor(.textPrimary)
                         }
                     }
@@ -195,7 +221,7 @@ struct FullPlayerView: View {
 
                 Button(action: { player.playNext() }) {
                     Image(systemName: "forward.end.fill")
-                        .font(.system(size: 30))
+                        .font(.system(size: 28))
                         .foregroundColor(.textPrimary)
                 }
 

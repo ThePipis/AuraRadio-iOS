@@ -229,4 +229,27 @@ final class VRadioDatabase {
         let sql = "\(baseSelect) WHERE S.Genre1 = ? GROUP BY S.Id LIMIT \(limit)"
         return queryStations(sql: sql, params: [String(categoryId)])
     }
+
+    func getNetworks() -> [NetworkItem] {
+        guard let db = db else { return [] }
+        var stmt: OpaquePointer?
+        var list: [NetworkItem] = []
+        let sql = "SELECT Id, Name, StationsCount FROM Network WHERE StationsCount > 1 ORDER BY StationsCount DESC"
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                list.append(NetworkItem(
+                    id: Int(sqlite3_column_int(stmt, 0)),
+                    name: columnString(stmt, 1),
+                    stationsCount: Int(sqlite3_column_int(stmt, 2))
+                ))
+            }
+        }
+        sqlite3_finalize(stmt)
+        return list
+    }
+
+    func getStationsByNetwork(networkId: Int, limit: Int = 100) -> [Station] {
+        let sql = "\(baseSelect) WHERE S.Network = ? GROUP BY S.Id LIMIT \(limit)"
+        return queryStations(sql: sql, params: [String(networkId)])
+    }
 }

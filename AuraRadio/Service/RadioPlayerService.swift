@@ -3,6 +3,7 @@ import AVFoundation
 import MediaPlayer
 import UIKit
 import Combine
+import Network
 
 final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadataOutputPushDelegate {
     static let shared = RadioPlayerService()
@@ -15,6 +16,7 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
     @Published var adFilterStatus: String = ""
     @Published var volume: Float = 1.0
     @Published var errorMessage: String?
+    @Published var sleepTimerRemainingMinutes: Int = 0
 
     var playlist: [Station] = []
     private var player: AVPlayer?
@@ -24,6 +26,11 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
     private var cachedArtworkImage: UIImage?
     private var lastArtworkUrl: String = ""
     private var prerollTimer: Timer?
+    private var sleepTimer: Timer?
+    private var dataTimer: Timer?
+    private var currentPlayToken = UUID()
+    private let pathMonitor = NWPathMonitor()
+    private var isWifiConnection = true
 
     private let adKeywords = [
         "ad:", "advertisement", "publicidad", "comercial", "anuncio",
@@ -36,6 +43,8 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
         setupAudioSession()
         setupRemoteCommands()
         detectGeoCountry()
+        setupNetworkMonitor()
+        startDataUsageTracker()
 
         if let last = FavoritesStore.shared.getLastPlayedStation(),
            !FavoritesStore.shared.blacklistedIds.contains(last.id) {
@@ -43,6 +52,50 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
                 self.playStation(last)
             }
         }
+    }
+
+    private func setupNetworkMonitor() {
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            self?.isWifiConnection = path.usesInterfaceType(.wifi) || path.usesInterfaceType(.wiredEthernet)
+        }
+        pathMonitor.start(queue: DispatchQueue.global(qos: .utility))
+    }
+
+    private func startDataUsageTracker() {
+        dataTimer?.invalidate()
+        dataTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            guard let self = self, self.isPlaying, let st = self.currentStation else { return }
+            let kbps = max(st.bitrate, 64)
+            let bytes5s = Int64((kbps * 1000 / 8) * 5)
+            DispatchQueue.main.async {
+                FavoritesStore.shared.addDataUsage(bytes: bytes5s, isWifi: self.isWifiConnection)
+            }
+        }
+    }
+
+    func startSleepTimer(minutes: Int) {
+        sleepTimer?.invalidate()
+        guard minutes > 0 else {
+            sleepTimerRemainingMinutes = 0
+            return
+        }
+        sleepTimerRemainingMinutes = minutes
+        sleepTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { [weak self] timer in
+            guard let self = self else { timer.invalidate(); return }
+            if self.sleepTimerRemainingMinutes <= 1 {
+                timer.invalidate()
+                self.sleepTimerRemainingMinutes = 0
+                self.stop()
+            } else {
+                self.sleepTimerRemainingMinutes -= 1
+            }
+        }
+    }
+
+    func cancelSleepTimer() {
+        sleepTimer?.invalidate()
+        sleepTimer = nil
+        sleepTimerRemainingMinutes = 0
     }
 
     private func setupAudioSession() {
@@ -115,9 +168,89 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
         }
 
         let cleanUrlStr = VRadioDatabase.normalizeStreamUrl(station.url)
-        let isHls = cleanUrlStr.contains(".m3u8") || cleanUrlStr.contains("mdstrm.com")
-        var effectiveUrlStr = cleanUrlStr
-        if isHls {
+        let playToken = UUID()
+        self.currentPlayToken = playToken
+
+        FavoritesStore.shared.addRecentStation(station.id)
+        FavoritesStore.shared.saveLastPlayedStation(station)
+        if !station.country.isEmpty {
+            FavoritesStore.shared.setLastPlayedCountry(station.country)
+        }
+
+        prerollTimer?.invalidate()
+        pausedAtTimestamp = nil
+        currentStation = station
+        isLoading = true
+        isPlaying = true
+        isAdPlaying = false
+        adFilterStatus = ""
+        liveTitle = station.name
+        errorMessage = nil
+
+        var headers: [String: String] = [
+            "User-Agent": station.streamUserAgent.isEmpty ? "VRadio/2.0 (iOS)" : station.streamUserAgent
+        ]
+        if !station.streamReferer.isEmpty {
+            headers["Referer"] = station.streamReferer
+        }
+
+        // Si es Mediastream, resolver primero el túnel limpio /live-audio/ sin -aw vía manifest.mpd (0% publicidad)
+        if cleanUrlStr.localizedCaseInsensitiveContains("mdstrm.com"),
+           let streamId = extractMediastreamId(from: cleanUrlStr) {
+            resolveMediastreamCleanHLS(streamId: streamId) { [weak self] resolvedUrl in
+                guard let self = self, self.currentPlayToken == playToken else { return }
+                let targetUrl = resolvedUrl ?? cleanUrlStr
+                let useCustomLoader = (resolvedUrl == nil)
+                self.startPlaybackWithResolvedUrl(targetUrl, headers: headers, useCustomHlsLoader: useCustomLoader, station: station)
+            }
+            return
+        }
+
+        let isHls = cleanUrlStr.contains(".m3u8")
+        startPlaybackWithResolvedUrl(cleanUrlStr, headers: headers, useCustomHlsLoader: isHls, station: station)
+    }
+
+    private func extractMediastreamId(from urlStr: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: "([a-f0-9]{24})"),
+              let match = regex.firstMatch(in: urlStr, range: NSRange(urlStr.startIndex..., in: urlStr)),
+              let range = Range(match.range(at: 1), in: urlStr) else {
+            return nil
+        }
+        return String(urlStr[range])
+    }
+
+    private func resolveMediastreamCleanHLS(streamId: String, completion: @escaping (String?) -> Void) {
+        guard let mpdUrl = URL(string: "https://mdstrm.com/audio/\(streamId)/manifest.mpd") else {
+            completion(nil)
+            return
+        }
+        var req = URLRequest(url: mpdUrl)
+        req.timeoutInterval = 3.5
+        req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+
+        URLSession.shared.dataTask(with: req) { data, _, _ in
+            guard let data = data,
+                  let xml = String(data: data, encoding: .utf8),
+                  let range = xml.range(of: "<Location>(.*?)</Location>", options: .regularExpression) else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+            let rawTag = String(xml[range])
+            let cleanLoc = rawTag
+                .replacingOccurrences(of: "<Location>", with: "")
+                .replacingOccurrences(of: "</Location>", with: "")
+                .replacingOccurrences(of: "&amp;", with: "&")
+                .replacingOccurrences(of: "manifest.mpd", with: "playlist.m3u8")
+
+            DispatchQueue.main.async {
+                completion(cleanLoc.contains("live-audio") ? cleanLoc : nil)
+            }
+        }.resume()
+    }
+
+    private func startPlaybackWithResolvedUrl(_ resolvedUrlStr: String, headers: [String: String], useCustomHlsLoader: Bool, station: Station) {
+        var effectiveUrlStr = resolvedUrlStr
+        if useCustomHlsLoader {
             if effectiveUrlStr.hasPrefix("https://") {
                 effectiveUrlStr = "aurahls://" + effectiveUrlStr.dropFirst("https://".count)
             } else if effectiveUrlStr.hasPrefix("http://") {
@@ -127,17 +260,12 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
 
         guard let url = URL(string: effectiveUrlStr) else {
             errorMessage = "URL de emisora inválida"
+            isLoading = false
+            isPlaying = false
             return
         }
 
-        FavoritesStore.shared.addRecentStation(station.id)
-        FavoritesStore.shared.saveLastPlayedStation(station)
-        if !station.country.isEmpty {
-            FavoritesStore.shared.setLastPlayedCountry(station.country)
-        }
-
-        prerollTimer?.invalidate()
-        let isKnownAdStream = cleanUrlStr.contains("zeno") || cleanUrlStr.contains("streamtheworld")
+        let isKnownAdStream = resolvedUrlStr.contains("zeno") || resolvedUrlStr.contains("streamtheworld")
         if isKnownAdStream {
             self.isAdPlaying = true
             self.adFilterStatus = "Filtrando anuncio de inicio..."
@@ -152,25 +280,8 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
             }
         }
 
-        pausedAtTimestamp = nil
-        currentStation = station
-        isLoading = true
-        isPlaying = true
-        if !isKnownAdStream {
-            isAdPlaying = false
-        }
-        liveTitle = station.name
-        errorMessage = nil
-
-        var headers: [String: String] = [
-            "User-Agent": station.streamUserAgent.isEmpty ? "VRadio/2.0 (iOS)" : station.streamUserAgent
-        ]
-        if !station.streamReferer.isEmpty {
-            headers["Referer"] = station.streamReferer
-        }
-
         let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
-        if isHls {
+        if useCustomHlsLoader {
             asset.resourceLoader.setDelegate(HLSAdStripperResourceLoader.shared, queue: HLSAdStripperResourceLoader.shared.queue)
         }
         let item = AVPlayerItem(asset: asset)
@@ -330,6 +441,9 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
                             self.player?.volume = self.volume
                         }
                         self.liveTitle = str
+                        if let stName = self.currentStation?.name, str != stName {
+                            FavoritesStore.shared.addSongHistory(title: str, artist: "", stationName: stName)
+                        }
                         self.updateNowPlayingInfo()
                     }
                 }
