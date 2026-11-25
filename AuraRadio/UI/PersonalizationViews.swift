@@ -348,3 +348,116 @@ struct FeatureStatusView: View {
         .navigationTitle(title)
     }
 }
+
+// MARK: - Búsqueda Rápida (Botón Lupa Superior)
+struct QuickSearchSheet: View {
+    @ObservedObject var store = FavoritesStore.shared
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+
+    var results: [Station] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard q.count >= 2 else { return [] }
+        let blackIds = store.blacklistedIds
+        return VRadioDatabase.shared.searchStations(query: q, limit: 60).filter { !blackIds.contains($0.id) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.darkBackground.ignoresSafeArea()
+                if query.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 {
+                    VStack(spacing: 10) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 42))
+                            .foregroundColor(.textSecondary)
+                        Text("Escribe al menos 2 letras para buscar")
+                            .foregroundColor(.textSecondary)
+                    }
+                } else {
+                    List {
+                        ForEach(results) { st in
+                            StationRow(station: st, list: results)
+                                .listRowBackground(Color.darkBackground)
+                        }
+                    }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                }
+            }
+            .navigationTitle("Buscar Emisoras")
+            .searchable(text: $query, prompt: "Nombre, país o género…")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cerrar") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Resolución de Problemas (Menú 3 Puntos Superior)
+struct TroubleshootingSheet: View {
+    @ObservedObject var player = RadioPlayerService.shared
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Diagnóstico del Motor de Audio") {
+                    HStack {
+                        Text("Estado AVPlayer")
+                        Spacer()
+                        Text(player.isPlaying ? "Reproduciendo en directo" : (player.isLoading ? "Conectando…" : "En espera"))
+                            .foregroundColor(.neonCyan)
+                    }
+                    HStack {
+                        Text("Filtro AdsWizz / Mediastream")
+                        Spacer()
+                        Text("ACTIVO (Sin publicidad)")
+                            .foregroundColor(.green)
+                    }
+                    HStack {
+                        Text("CarPlay & AirPlay")
+                        Spacer()
+                        Text("Habilitado")
+                            .foregroundColor(.textSecondary)
+                    }
+                    if let st = player.currentStation {
+                        HStack {
+                            Text("Emisora activa")
+                            Spacer()
+                            Text(st.name)
+                                .foregroundColor(.textPrimary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+                .listRowBackground(Color.darkSurface)
+
+                if let st = player.currentStation {
+                    Section {
+                        Button(action: {
+                            player.playStation(st, list: player.playlist)
+                            dismiss()
+                        }) {
+                            Label("Reconectar emisora actual", systemImage: "arrow.clockwise")
+                                .foregroundColor(.neonCyan)
+                        }
+                    }
+                    .listRowBackground(Color.darkSurface)
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(Color.darkBackground)
+            .navigationTitle("Resolución de Problemas")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Listo") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+}
+

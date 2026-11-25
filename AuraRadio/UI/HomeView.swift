@@ -9,6 +9,8 @@ struct HomeView: View {
     @State private var showFullPlayer = false
     @State private var showDrawer = false
     @State private var showSleepTimer = false
+    @State private var showTroubleshooting = false
+    @State private var showQuickSearch = false
     @State private var suggested: [Station] = []
     @State private var recents: [Station] = []
 
@@ -234,6 +236,45 @@ struct HomeView: View {
                                     .foregroundColor(.textPrimary)
                             }
                         }
+
+                        ToolbarItemGroup(placement: .navigationBarTrailing) {
+                            AirPlayPickerButton()
+                                .frame(width: 26, height: 26)
+
+                            Button(action: { showQuickSearch = true }) {
+                                Image(systemName: "magnifyingglass")
+                                    .foregroundColor(.textPrimary)
+                            }
+
+                            Button(action: { path.append(AppRoute.favorites) }) {
+                                Image(systemName: "heart.fill")
+                                    .foregroundColor(.accentRed)
+                            }
+
+                            Menu {
+                                Button(action: { path.append(AppRoute.alarms) }) {
+                                    Label("Despertadores", systemImage: "alarm")
+                                }
+                                Button(action: { showSleepTimer = true }) {
+                                    Label("Temporizador de Sueño", systemImage: "timer")
+                                }
+                                Button(action: { path.append(AppRoute.alarms) }) {
+                                    Label("Horarios", systemImage: "clock")
+                                }
+                                Button(action: { showTroubleshooting = true }) {
+                                    Label("Resolución de Problemas", systemImage: "wrench.and.screwdriver")
+                                }
+                                Divider()
+                                Button(action: { path.append(AppRoute.settings) }) {
+                                    Label("Ajustes", systemImage: "gearshape")
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis")
+                                    .rotationEffect(.degrees(90))
+                                    .foregroundColor(.textPrimary)
+                                    .padding(.leading, 4)
+                            }
+                        }
                     }
                     .searchable(text: $searchQuery, prompt: "Buscar entre 35.000 emisoras…")
                     .overlay {
@@ -307,6 +348,12 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showSleepTimer) {
             SleepTimerSheet()
+        }
+        .sheet(isPresented: $showQuickSearch) {
+            QuickSearchSheet()
+        }
+        .sheet(isPresented: $showTroubleshooting) {
+            TroubleshootingSheet()
         }
         .onAppear { refreshData() }
         .onChange(of: store.blacklistedStations.count) { _ in refreshData() }
