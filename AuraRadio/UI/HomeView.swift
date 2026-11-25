@@ -165,7 +165,7 @@ struct ExploreTile: View {
 
 struct StationHorizontalCard: View {
     let station: Station
-    let onTap: () -> Unit
+    let onTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
@@ -198,7 +198,7 @@ struct StationHorizontalCard: View {
 
 struct MiniPlayerDock: View {
     @ObservedObject var player = RadioPlayerService.shared
-    let onTap: () -> Unit
+    let onTap: () -> Void
 
     var body: some View {
         if let st = player.currentStation {
