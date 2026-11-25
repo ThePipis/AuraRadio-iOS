@@ -37,9 +37,29 @@ jobs:
           mkdir -p build/Payload
           cp -R build/AuraRadio.xcarchive/Products/Applications/AuraRadio.app build/Payload/
           cd build && zip -r AuraRadio-iOS-v2.10.1.ipa Payload
+          cd ..
 
-      - name: Upload AuraRadio-iOS IPA Artifact
+      - name: Build iOS Simulator package for Appetize.io
+        run: |
+          xcodebuild -project AuraRadio.xcodeproj \
+            -scheme AuraRadio \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination "generic/platform=iOS Simulator" \
+            build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            BUILD_DIR="$(pwd)/build/sim_output"
+
+          cd build/sim_output/Release-iphonesimulator
+          zip -r ../../AuraRadio-Simulator.zip AuraRadio.app
+          cd ../../..
+
+      - name: Upload AuraRadio-iOS Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: AuraRadio-iOS-IPA
-          path: build/AuraRadio-iOS-v2.10.1.ipa
+          name: AuraRadio-iOS-Builds
+          path: |
+            build/AuraRadio-iOS-v2.10.1.ipa
+            build/AuraRadio-Simulator.zip
