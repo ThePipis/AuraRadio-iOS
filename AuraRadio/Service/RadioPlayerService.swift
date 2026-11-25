@@ -22,10 +22,12 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
     private var pausedAtTimestamp: Date?
     private var cachedArtworkImage: UIImage?
     private var lastArtworkUrl: String = ""
+    private var prerollTimer: Timer?
 
     private let adKeywords = [
         "ad:", "advertisement", "publicidad", "comercial", "anuncio",
-        "adswizz", "triton", "instream", "targetspot", "promo", "sponsor"
+        "adswizz", "triton", "instream", "targetspot", "promo", "sponsor",
+        "univision", "ad_", "newenco"
     ]
 
     private override init() {
@@ -112,7 +114,17 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
         }
 
         let cleanUrlStr = VRadioDatabase.normalizeStreamUrl(station.url)
-        guard let url = URL(string: cleanUrlStr) else {
+        let isHls = cleanUrlStr.contains(".m3u8") || cleanUrlStr.contains("mdstrm.com")
+        var effectiveUrlStr = cleanUrlStr
+        if isHls {
+            if effectiveUrlStr.hasPrefix("https://") {
+                effectiveUrlStr = "aurahls://" + effectiveUrlStr.dropFirst("https://".count)
+            } else if effectiveUrlStr.hasPrefix("http://") {
+                effectiveUrlStr = "aurahlsp://" + effectiveUrlStr.dropFirst("http://".count)
+            }
+        }
+
+        guard let url = URL(string: effectiveUrlStr) else {
             errorMessage = "URL de emisora inválida"
             return
         }
@@ -123,11 +135,29 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
             FavoritesStore.shared.setLastPlayedCountry(station.country)
         }
 
+        prerollTimer?.invalidate()
+        let isKnownAdStream = cleanUrlStr.contains("zeno") || cleanUrlStr.contains("streamtheworld")
+        if isKnownAdStream {
+            self.isAdPlaying = true
+            self.adFilterStatus = "Filtrando anuncio de inicio..."
+            prerollTimer = Timer.scheduledTimer(withTimeInterval: 25.0, repeats: false) { [weak self] _ in
+                DispatchQueue.main.async {
+                    if self?.isAdPlaying == true {
+                        self?.isAdPlaying = false
+                        self?.adFilterStatus = ""
+                        self?.player?.volume = self?.volume ?? 1.0
+                    }
+                }
+            }
+        }
+
         pausedAtTimestamp = nil
         currentStation = station
         isLoading = true
         isPlaying = true
-        isAdPlaying = false
+        if !isKnownAdStream {
+            isAdPlaying = false
+        }
         liveTitle = station.name
         errorMessage = nil
 
@@ -139,6 +169,9 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
         }
 
         let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+        if isHls {
+            asset.resourceLoader.setDelegate(HLSAdStripperResourceLoader.shared, queue: HLSAdStripperResourceLoader.shared.queue)
+        }
         let item = AVPlayerItem(asset: asset)
 
         let metadataOutput = AVPlayerItemMetadataOutput(identifiers: nil)
@@ -286,10 +319,13 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
                     let lower = str.lowercased()
                     if adKeywords.contains(where: { lower.contains($0) }) {
                         isAdPlaying = true
+                        adFilterStatus = "Anuncio silenciado"
                         player?.volume = 0.0
                     } else {
                         if isAdPlaying {
+                            prerollTimer?.invalidate()
                             isAdPlaying = false
+                            adFilterStatus = ""
                             player?.volume = volume
                         }
                         liveTitle = str

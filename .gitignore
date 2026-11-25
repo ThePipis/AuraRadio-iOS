@@ -1,0 +1,7 @@
+dist/
+*.zip
+build/
+.DS_Store
+DerivedData/
+*.xcodeproj
+*.xcworkspace
