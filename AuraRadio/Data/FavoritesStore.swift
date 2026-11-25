@@ -82,6 +82,7 @@ final class FavoritesStore: ObservableObject {
     // MARK: - Última emisora (Auto-Play)
     func saveLastPlayedStation(_ station: Station) {
         encode(station, key: "last_played_station")
+        defaults.synchronize()
     }
 
     func getLastPlayedStation() -> Station? {

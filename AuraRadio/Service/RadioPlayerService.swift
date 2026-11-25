@@ -31,6 +31,8 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
     private var currentPlayToken = UUID()
     private let pathMonitor = NWPathMonitor()
     private var isWifiConnection = true
+    private var hasAttemptedAutoPlay = false
+    private var userExplicitlyStopped = false
 
     private let adKeywords = [
         "ad:", "advertisement", "publicidad", "comercial", "anuncio",
@@ -40,17 +42,48 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
 
     private override init() {
         super.init()
+        _ = LocalAdStrippingProxy.shared
         setupAudioSession()
         setupRemoteCommands()
+        setupAudioLifecycleObservers()
         detectGeoCountry()
         setupNetworkMonitor()
         startDataUsageTracker()
+        ensureAutoPlayOnLaunch()
+    }
 
-        if let last = FavoritesStore.shared.getLastPlayedStation(),
+    func ensureAutoPlayOnLaunch() {
+        guard !hasAttemptedAutoPlay else { return }
+        hasAttemptedAutoPlay = true
+        if currentStation == nil,
+           !userExplicitlyStopped,
+           let last = FavoritesStore.shared.getLastPlayedStation(),
            !FavoritesStore.shared.blacklistedIds.contains(last.id) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                self.playStation(last)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                if self.currentStation == nil && !self.userExplicitlyStopped {
+                    self.playStation(last)
+                }
             }
+        }
+    }
+
+    func handleAppDidBecomeActive() {
+        setupAudioSession()
+        if currentStation == nil && !userExplicitlyStopped {
+            ensureAutoPlayOnLaunch()
+        } else if isPlaying {
+            player?.play()
+        }
+    }
+
+    func handleAppDidEnterBackground() {
+        if isPlaying {
+            try? AVAudioSession.sharedInstance().setActive(true)
+            player?.play()
+            updateNowPlayingInfo()
+        }
+        if let current = currentStation {
+            FavoritesStore.shared.saveLastPlayedStation(current)
         }
     }
 
@@ -101,10 +134,51 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
     private func setupAudioSession() {
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playback, mode: .default, policy: .longFormAudio, options: [.allowAirPlay])
+            try session.setCategory(.playback, mode: .default, options: [])
             try session.setActive(true)
+            DispatchQueue.main.async {
+                UIApplication.shared.beginReceivingRemoteControlEvents()
+            }
         } catch {
             print("[RadioPlayerService] AudioSession error: \(error)")
+        }
+    }
+
+    private func setupAudioLifecycleObservers() {
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] notification in
+            guard let self = self,
+                  let info = notification.userInfo,
+                  let typeVal = info[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  let type = AVAudioSession.InterruptionType(rawValue: typeVal) else { return }
+
+            if type == .ended {
+                let optsVal = info[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+                let opts = AVAudioSession.InterruptionOptions(rawValue: optsVal)
+                try? AVAudioSession.sharedInstance().setActive(true)
+                if opts.contains(.shouldResume) || self.isPlaying {
+                    self.player?.play()
+                    self.updateNowPlayingInfo()
+                }
+            }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] notification in
+            guard let self = self,
+                  let info = notification.userInfo,
+                  let reasonVal = info[AVAudioSessionRouteChangeReasonKey] as? UInt,
+                  let reason = AVAudioSession.RouteChangeReason(rawValue: reasonVal) else { return }
+
+            if reason == .oldDeviceUnavailable && self.isPlaying {
+                self.pause()
+            }
         }
     }
 
@@ -170,7 +244,9 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
         let cleanUrlStr = VRadioDatabase.normalizeStreamUrl(station.url)
         let playToken = UUID()
         self.currentPlayToken = playToken
+        self.userExplicitlyStopped = false
 
+        setupAudioSession()
         FavoritesStore.shared.addRecentStation(station.id)
         FavoritesStore.shared.saveLastPlayedStation(station)
         if !station.country.isEmpty {
@@ -194,20 +270,20 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
             headers["Referer"] = station.streamReferer
         }
 
-        // Si es Mediastream, resolver primero el túnel limpio /live-audio/ sin -aw vía manifest.mpd (0% publicidad)
+        // Capa 1 (Mediastream): resolver túnel limpio /live-audio/ sin -aw vía manifest.mpd (0% anuncios)
+        // y pasarlo por LocalAdStrippingProxy como Capa 2 de seguridad HLS idéntica a Android.
         if cleanUrlStr.localizedCaseInsensitiveContains("mdstrm.com"),
            let streamId = extractMediastreamId(from: cleanUrlStr) {
             resolveMediastreamCleanHLS(streamId: streamId) { [weak self] resolvedUrl in
                 guard let self = self, self.currentPlayToken == playToken else { return }
                 let targetUrl = resolvedUrl ?? cleanUrlStr
-                let useCustomLoader = (resolvedUrl == nil)
-                self.startPlaybackWithResolvedUrl(targetUrl, headers: headers, useCustomHlsLoader: useCustomLoader, station: station)
+                self.startPlaybackWithResolvedUrl(targetUrl, headers: headers, proxyHls: true, station: station)
             }
             return
         }
 
-        let isHls = cleanUrlStr.contains(".m3u8")
-        startPlaybackWithResolvedUrl(cleanUrlStr, headers: headers, useCustomHlsLoader: isHls, station: station)
+        let isHls = cleanUrlStr.lowercased().contains(".m3u8")
+        startPlaybackWithResolvedUrl(cleanUrlStr, headers: headers, proxyHls: isHls, station: station)
     }
 
     private func extractMediastreamId(from urlStr: String) -> String? {
@@ -248,15 +324,10 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
         }.resume()
     }
 
-    private func startPlaybackWithResolvedUrl(_ resolvedUrlStr: String, headers: [String: String], useCustomHlsLoader: Bool, station: Station) {
-        var effectiveUrlStr = resolvedUrlStr
-        if useCustomHlsLoader {
-            if effectiveUrlStr.hasPrefix("https://") {
-                effectiveUrlStr = "aurahls://" + effectiveUrlStr.dropFirst("https://".count)
-            } else if effectiveUrlStr.hasPrefix("http://") {
-                effectiveUrlStr = "aurahlsp://" + effectiveUrlStr.dropFirst("http://".count)
-            }
-        }
+    private func startPlaybackWithResolvedUrl(_ resolvedUrlStr: String, headers: [String: String], proxyHls: Bool, station: Station) {
+        let effectiveUrlStr = proxyHls
+            ? LocalAdStrippingProxy.shared.proxiedUrlIfNeeded(for: resolvedUrlStr)
+            : resolvedUrlStr
 
         guard let url = URL(string: effectiveUrlStr) else {
             errorMessage = "URL de emisora inválida"
@@ -265,7 +336,7 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
             return
         }
 
-        let isKnownAdStream = resolvedUrlStr.contains("zeno") || resolvedUrlStr.contains("streamtheworld")
+        let isKnownAdStream = !proxyHls && (resolvedUrlStr.contains("zeno") || resolvedUrlStr.contains("streamtheworld"))
         if isKnownAdStream {
             self.isAdPlaying = true
             self.adFilterStatus = "Filtrando anuncio de inicio..."
@@ -281,9 +352,6 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
         }
 
         let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
-        if useCustomHlsLoader {
-            asset.resourceLoader.setDelegate(HLSAdStripperResourceLoader.shared, queue: HLSAdStripperResourceLoader.shared.queue)
-        }
         let item = AVPlayerItem(asset: asset)
 
         let metadataOutput = AVPlayerItemMetadataOutput(identifiers: nil)
@@ -313,6 +381,9 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
 
         if player == nil {
             player = AVPlayer(playerItem: item)
+            player?.audiovisualBackgroundPlaybackPolicy = .continuesIfPossible
+            player?.preventsDisplaySleepDuringVideoPlayback = false
+            player?.allowsExternalPlayback = true
         } else {
             player?.replaceCurrentItem(with: item)
         }
@@ -370,12 +441,14 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
     }
 
     func stop() {
+        userExplicitlyStopped = true
         player?.pause()
         player?.replaceCurrentItem(with: nil)
         isPlaying = false
         isLoading = false
         currentStation = nil
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        MPNowPlayingInfoCenter.default().playbackState = .stopped
     }
 
     func setVolume(_ vol: Float) {
@@ -478,5 +551,6 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
             info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: img.size) { _ in img }
         }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        MPNowPlayingInfoCenter.default().playbackState = isPlaying ? .playing : .paused
     }
 }
