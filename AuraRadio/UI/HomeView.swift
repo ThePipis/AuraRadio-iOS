@@ -588,10 +588,19 @@ struct MiniPlayerDock: View {
                         .font(.system(size: 14, weight: .bold))
                         .foregroundColor(.textPrimary)
                         .lineLimit(1)
-                    Text(player.isLoading ? "Conectando…" : (player.liveTitle.isEmpty ? st.subtitleInfo : player.liveTitle))
-                        .font(.system(size: 11))
-                        .foregroundColor(.neonCyan)
-                        .lineLimit(1)
+                    if player.isLoading {
+                        Text("Conectando…")
+                            .font(.system(size: 11))
+                            .foregroundColor(.neonCyan)
+                            .lineLimit(1)
+                    } else {
+                        MarqueeBannerText(
+                            text: player.liveTitle.isEmpty ? st.subtitleInfo : player.liveTitle,
+                            font: .system(size: 11, weight: .medium),
+                            color: .neonCyan
+                        )
+                        .frame(height: 15)
+                    }
                 }
 
                 Spacer()

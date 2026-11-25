@@ -133,10 +133,13 @@ struct FullPlayerView: View {
                 .clipShape(Capsule())
 
             if !player.liveTitle.isEmpty && player.liveTitle != station.name {
-                Text(player.liveTitle)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.neonCyan)
-                    .lineLimit(1)
+                MarqueeBannerText(
+                    text: "🎵 \(player.liveTitle)",
+                    font: .system(size: 13, weight: .semibold),
+                    color: .neonCyan
+                )
+                .frame(height: 22)
+                .padding(.horizontal, 8)
             }
         }
     }
@@ -224,6 +227,74 @@ struct FullPlayerView: View {
                 AirPlayPickerButton()
                     .frame(width: 28, height: 28)
             }
+        }
+    }
+}
+
+struct MarqueeBannerText: View {
+    let text: String
+    let font: Font
+    let color: Color
+
+    @State private var textWidth: CGFloat = 0
+    @State private var startTime = Date()
+
+    private let speed: CGFloat = 42.0 // px por segundo de derecha a izquierda
+    private let gap: CGFloat = 56.0
+
+    var body: some View {
+        GeometryReader { geo in
+            let containerWidth = geo.size.width
+            let cycleDistance = max(textWidth, containerWidth) + gap
+
+            TimelineView(.animation) { timeline in
+                let elapsed = max(0, timeline.date.timeIntervalSince(startTime) - 1.0)
+                let offset = -CGFloat(elapsed * Double(speed)).truncatingRemainder(dividingBy: cycleDistance)
+
+                ZStack(alignment: .leading) {
+                    HStack(spacing: gap) {
+                        Text(text)
+                            .font(font)
+                            .foregroundColor(color)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .background(
+                                GeometryReader { textGeo in
+                                    Color.clear
+                                        .onAppear { textWidth = textGeo.size.width }
+                                        .onChange(of: textGeo.size.width) { newW in
+                                            textWidth = newW
+                                        }
+                                        .onChange(of: text) { _ in
+                                            startTime = Date()
+                                        }
+                                }
+                            )
+
+                        Text(text)
+                            .font(font)
+                            .foregroundColor(color)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                    .offset(x: offset)
+                }
+                .frame(width: containerWidth, alignment: .leading)
+                .clipped()
+                .mask(
+                    LinearGradient(
+                        gradient: Gradient(stops: [
+                            .init(color: .clear, location: 0.0),
+                            .init(color: .black, location: 0.06),
+                            .init(color: .black, location: 0.94),
+                            .init(color: .clear, location: 1.0)
+                        ]),
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+            }
+        }
+        .onChange(of: text) { _ in
+            startTime = Date()
         }
     }
 }

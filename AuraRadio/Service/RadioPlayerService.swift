@@ -473,19 +473,89 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
     func metadataOutput(_ output: AVPlayerItemMetadataOutput, didOutputTimedMetadataGroups groups: [AVTimedMetadataGroup], from track: AVPlayerItemTrack?) {
         for group in groups {
             for item in group.items {
-                if let str = item.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !str.isEmpty {
-                    let lower = str.lowercased()
+                if let rawStr = item.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !rawStr.isEmpty {
+                    let lower = rawStr.lowercased()
                     if ssaiTrackers.contains(where: { lower.contains($0) }) {
                         continue
                     }
-                    self.liveTitle = str
-                    if let stName = self.currentStation?.name, str != stName {
-                        FavoritesStore.shared.addSongHistory(title: str, artist: "", stationName: stName)
+                    let formatted = formatLiveMetadata(rawStr)
+                    guard !formatted.isEmpty else { continue }
+                    self.liveTitle = formatted
+                    if let stName = self.currentStation?.name, formatted != stName {
+                        FavoritesStore.shared.addSongHistory(title: formatted, artist: "", stationName: stName)
                     }
                     self.updateNowPlayingInfo()
                 }
             }
         }
+    }
+
+    private func decodeMetadataValue(_ raw: String) -> String {
+        var s = raw
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#39;", with: "'")
+            .replacingOccurrences(of: "+", with: " ")
+        if let unescaped = s.removingPercentEncoding {
+            s = unescaped
+        }
+        return s.trimmingCharacters(in: CharacterSet(charactersIn: " '\""))
+    }
+
+    private func formatLiveMetadata(_ raw: String) -> String {
+        var clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if clean.hasPrefix("StreamTitle=") {
+            clean = String(clean.dropFirst("StreamTitle=".count))
+            if let semi = clean.firstIndex(of: ";") {
+                clean = String(clean[..<semi])
+            }
+        }
+        clean = clean.trimmingCharacters(in: CharacterSet(charactersIn: " '\""))
+
+        let lower = clean.lowercased()
+        if lower.contains("artist=") || lower.contains("title=") || lower.contains("song=") || lower.contains("album=") || lower.contains("&text=") {
+            let parts = clean.components(separatedBy: "&")
+            var leadingText = ""
+            var titleVal = ""
+            var artistVal = ""
+
+            for part in parts {
+                if let eqIdx = part.firstIndex(of: "=") {
+                    let key = part[..<eqIdx].lowercased().trimmingCharacters(in: .whitespaces)
+                    let val = decodeMetadataValue(String(part[part.index(after: eqIdx)...]))
+                    guard !val.isEmpty else { continue }
+                    switch key {
+                    case "title", "song", "track", "text":
+                        if titleVal.isEmpty { titleVal = val }
+                    case "artist", "singer":
+                        if artistVal.isEmpty { artistVal = val }
+                    default:
+                        break // ignorar &album=, &duration=, &url=, etc.
+                    }
+                } else {
+                    let decoded = decodeMetadataValue(part)
+                    if !decoded.isEmpty && leadingText.isEmpty {
+                        leadingText = decoded
+                    }
+                }
+            }
+
+            let song = !titleVal.isEmpty ? titleVal : leadingText
+            if !artistVal.isEmpty && !song.isEmpty {
+                return "\(artistVal) — \(song)"
+            } else if !song.isEmpty {
+                return song
+            } else if !artistVal.isEmpty {
+                return artistVal
+            }
+        }
+
+        let decoded = decodeMetadataValue(clean)
+        // Limpiar prefijos residuales tipo "text=" o "artist="
+        if decoded.lowercased().hasPrefix("text=") {
+            return String(decoded.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+        }
+        return decoded
     }
 
     // MARK: - Lockscreen / AirPlay / CarPlay NowPlaying Metadata
