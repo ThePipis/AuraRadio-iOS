@@ -12,8 +12,6 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
     @Published var isPlaying: Bool = false
     @Published var isLoading: Bool = false
     @Published var liveTitle: String = ""
-    @Published var isAdPlaying: Bool = false
-    @Published var adFilterStatus: String = ""
     @Published var volume: Float = 1.0
     @Published var errorMessage: String?
     @Published var sleepTimerRemainingMinutes: Int = 0
@@ -25,7 +23,6 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
     private var pausedAtTimestamp: Date?
     private var cachedArtworkImage: UIImage?
     private var lastArtworkUrl: String = ""
-    private var prerollTimer: Timer?
     private var sleepTimer: Timer?
     private var dataTimer: Timer?
     private var currentPlayToken = UUID()
@@ -34,11 +31,7 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
     private var hasAttemptedAutoPlay = false
     private var userExplicitlyStopped = false
 
-    private let adKeywords = [
-        "ad:", "advertisement", "publicidad", "comercial", "anuncio",
-        "adswizz", "triton", "instream", "targetspot", "promo", "sponsor",
-        "univision", "ad_", "newenco"
-    ]
+    private let ssaiTrackers = ["adswizz", "triton", "instream", "targetspot"]
 
     private override init() {
         super.init()
@@ -253,13 +246,10 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
             FavoritesStore.shared.setLastPlayedCountry(station.country)
         }
 
-        prerollTimer?.invalidate()
         pausedAtTimestamp = nil
         currentStation = station
         isLoading = true
         isPlaying = true
-        isAdPlaying = false
-        adFilterStatus = ""
         liveTitle = station.name
         errorMessage = nil
 
@@ -336,21 +326,6 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
             return
         }
 
-        let isKnownAdStream = !proxyHls && (resolvedUrlStr.contains("zeno") || resolvedUrlStr.contains("streamtheworld"))
-        if isKnownAdStream {
-            self.isAdPlaying = true
-            self.adFilterStatus = "Filtrando anuncio de inicio..."
-            prerollTimer = Timer.scheduledTimer(withTimeInterval: 25.0, repeats: false) { [weak self] _ in
-                DispatchQueue.main.async {
-                    if self?.isAdPlaying == true {
-                        self?.isAdPlaying = false
-                        self?.adFilterStatus = ""
-                        self?.player?.volume = self?.volume ?? 1.0
-                    }
-                }
-            }
-        }
-
         let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
         let item = AVPlayerItem(asset: asset)
 
@@ -388,7 +363,7 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
             player?.replaceCurrentItem(with: item)
         }
 
-        player?.volume = isAdPlaying ? 0.0 : volume
+        player?.volume = volume
 
         timeControlObserver = player?.observe(\.timeControlStatus, options: [.new]) { [weak self] avPlayer, _ in
             DispatchQueue.main.async {
@@ -454,9 +429,7 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
     func setVolume(_ vol: Float) {
         let clamped = min(max(vol, 0.0), 1.0)
         volume = clamped
-        if !isAdPlaying {
-            player?.volume = clamped
-        }
+        player?.volume = clamped
     }
 
     func playNext() {
@@ -496,29 +469,20 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
         playNext()
     }
 
-    // MARK: - ICY Timed Metadata & Ad Suppression
+    // MARK: - ICY Timed Metadata
     func metadataOutput(_ output: AVPlayerItemMetadataOutput, didOutputTimedMetadataGroups groups: [AVTimedMetadataGroup], from track: AVPlayerItemTrack?) {
         for group in groups {
             for item in group.items {
                 if let str = item.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !str.isEmpty {
                     let lower = str.lowercased()
-                    if adKeywords.contains(where: { lower.contains($0) }) {
-                        self.isAdPlaying = true
-                        self.adFilterStatus = "Anuncio silenciado"
-                        self.player?.volume = 0.0
-                    } else {
-                        if self.isAdPlaying {
-                            self.prerollTimer?.invalidate()
-                            self.isAdPlaying = false
-                            self.adFilterStatus = ""
-                            self.player?.volume = self.volume
-                        }
-                        self.liveTitle = str
-                        if let stName = self.currentStation?.name, str != stName {
-                            FavoritesStore.shared.addSongHistory(title: str, artist: "", stationName: stName)
-                        }
-                        self.updateNowPlayingInfo()
+                    if ssaiTrackers.contains(where: { lower.contains($0) }) {
+                        continue
                     }
+                    self.liveTitle = str
+                    if let stName = self.currentStation?.name, str != stName {
+                        FavoritesStore.shared.addSongHistory(title: str, artist: "", stationName: stName)
+                    }
+                    self.updateNowPlayingInfo()
                 }
             }
         }

@@ -132,11 +132,7 @@ struct FullPlayerView: View {
                 .background(Color.darkSurfaceVariant)
                 .clipShape(Capsule())
 
-            if player.isAdPlaying {
-                Text("🛡️ Omitiendo anuncio del proveedor…")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.accentRed)
-            } else if !player.liveTitle.isEmpty && player.liveTitle != station.name {
+            if !player.liveTitle.isEmpty && player.liveTitle != station.name {
                 Text(player.liveTitle)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.neonCyan)

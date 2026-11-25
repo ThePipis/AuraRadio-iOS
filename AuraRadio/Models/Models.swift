@@ -46,6 +46,18 @@ struct CountryItem: Identifiable, Hashable {
         }
         return URL(string: "https://vradio.app/CFlag/\(id).png")
     }
+
+    var flagEmoji: String {
+        let code = iso2.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard code.count == 2 else { return "🌐" }
+        var s = ""
+        for scalar in code.unicodeScalars {
+            if let v = UnicodeScalar(127397 + scalar.value) {
+                s.unicodeScalars.append(v)
+            }
+        }
+        return s.isEmpty ? "🌐" : s
+    }
 }
 
 struct CategoryItem: Identifiable, Hashable {

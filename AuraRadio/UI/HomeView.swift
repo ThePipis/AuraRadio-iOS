@@ -688,6 +688,59 @@ struct SearchResultsOverlay: View {
     }
 }
 
+struct FlagImageCache {
+    static let memory = NSCache<NSString, UIImage>()
+    static let session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.httpMaximumConnectionsPerHost = 6
+        config.urlCache = URLCache(memoryCapacity: 20 * 1024 * 1024, diskCapacity: 60 * 1024 * 1024)
+        config.requestCachePolicy = .returnCacheDataElseLoad
+        config.timeoutIntervalForRequest = 8.0
+        return URLSession(configuration: config)
+    }()
+}
+
+struct FlagImageView: View {
+    let country: CountryItem
+    @State private var loadedImage: UIImage?
+
+    var body: some View {
+        ZStack {
+            Color.darkSurface
+            if let img = loadedImage {
+                Image(uiImage: img)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                Text(country.flagEmoji)
+                    .font(.system(size: 34))
+            }
+        }
+        .onAppear { loadFlag(attempt: 1) }
+    }
+
+    private func loadFlag(attempt: Int) {
+        guard loadedImage == nil, let url = country.flagURL else { return }
+        let key = url.absoluteString as NSString
+        if let cached = FlagImageCache.memory.object(forKey: key) {
+            loadedImage = cached
+            return
+        }
+        FlagImageCache.session.dataTask(with: url) { data, _, _ in
+            if let data = data, let img = UIImage(data: data) {
+                FlagImageCache.memory.setObject(img, forKey: key)
+                DispatchQueue.main.async {
+                    loadedImage = img
+                }
+            } else if attempt < 3 {
+                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + Double(attempt) * 0.6) {
+                    loadFlag(attempt: attempt + 1)
+                }
+            }
+        }.resume()
+    }
+}
+
 struct CountriesGridView: View {
     @ObservedObject var store = FavoritesStore.shared
     private let countries = VRadioDatabase.shared.getCountries()
@@ -710,14 +763,9 @@ struct CountriesGridView: View {
                             ForEach(recentItems) { country in
                                 NavigationLink(destination: CountryStationsView(country: country)) {
                                     VStack(spacing: 6) {
-                                        AsyncImage(url: country.flagURL) { phase in
-                                            if case .success(let img) = phase {
-                                                img.resizable().scaledToFit()
-                                            }
-                                        }
-                                        .frame(width: 72, height: 46)
-                                        .background(Color.darkSurface)
-                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                        FlagImageView(country: country)
+                                            .frame(width: 72, height: 46)
+                                            .clipShape(RoundedRectangle(cornerRadius: 8))
 
                                         Text(country.name)
                                             .font(.caption)
@@ -742,14 +790,9 @@ struct CountriesGridView: View {
                     ForEach(countries) { country in
                         NavigationLink(destination: CountryStationsView(country: country)) {
                             VStack(spacing: 4) {
-                                AsyncImage(url: country.flagURL) { phase in
-                                    if case .success(let img) = phase {
-                                        img.resizable().scaledToFit()
-                                    }
-                                }
-                                .frame(height: 52)
-                                .background(Color.darkSurface)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                FlagImageView(country: country)
+                                    .frame(height: 52)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
 
                                 Text(country.name)
                                     .font(.caption2)
