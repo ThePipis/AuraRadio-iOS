@@ -1,0 +1,45 @@
+name: Build AuraRadio iOS IPA
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select latest Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode Project
+        run: xcodegen generate
+
+      - name: Build & Archive unsigned IPA (Sideloadly / AltStore ready)
+        run: |
+          xcodebuild -project AuraRadio.xcodeproj \
+            -scheme AuraRadio \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath build/AuraRadio.xcarchive \
+            archive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+          mkdir -p build/Payload
+          cp -R build/AuraRadio.xcarchive/Products/Applications/AuraRadio.app build/Payload/
+          cd build && zip -r AuraRadio-iOS-v2.10.1.ipa Payload
+
+      - name: Upload AuraRadio-iOS IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AuraRadio-iOS-IPA
+          path: build/AuraRadio-iOS-v2.10.1.ipa
