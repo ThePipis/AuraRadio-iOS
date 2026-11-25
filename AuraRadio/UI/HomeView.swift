@@ -16,6 +16,7 @@ struct HomeView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
+                        // Explorar
                         Text("Explorar")
                             .font(.headline)
                             .foregroundColor(.textPrimary)
@@ -37,6 +38,7 @@ struct HomeView: View {
                         }
                         .padding(.horizontal)
 
+                        // Emisoras Sugeridas
                         if !suggested.isEmpty {
                             Text("Emisoras Sugeridas")
                                 .font(.headline)
@@ -55,6 +57,7 @@ struct HomeView: View {
                             }
                         }
 
+                        // Escuchado Recientemente
                         if !recents.isEmpty {
                             HStack {
                                 Text("Escuchado Recientemente")
@@ -82,6 +85,7 @@ struct HomeView: View {
                             }
                         }
 
+                        // Gestión / Lista Negra
                         Text("Gestión")
                             .font(.headline)
                             .foregroundColor(.textPrimary)

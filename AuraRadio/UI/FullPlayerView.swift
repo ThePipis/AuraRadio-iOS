@@ -16,6 +16,7 @@ struct FullPlayerView: View {
     @ObservedObject var player = RadioPlayerService.shared
     @ObservedObject var store = FavoritesStore.shared
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var hSize
     @Environment(\.verticalSizeClass) private var vSize
 
     var isLandscape: Bool {
@@ -28,6 +29,7 @@ struct FullPlayerView: View {
 
             if let station = player.currentStation {
                 VStack(spacing: 0) {
+                    // Top Bar
                     HStack {
                         Button(action: { dismiss() }) {
                             Image(systemName: "chevron.down")
@@ -122,6 +124,7 @@ struct FullPlayerView: View {
         let isFav = store.isFavorite(station.id)
 
         VStack(spacing: isLandscape ? 14 : 20) {
+            // Volume Slider
             HStack(spacing: 10) {
                 Image(systemName: "speaker.fill")
                     .foregroundColor(.textSecondary)
@@ -134,6 +137,7 @@ struct FullPlayerView: View {
                     .foregroundColor(.textSecondary)
             }
 
+            // Status + Blacklist + Stop
             HStack {
                 Text(player.isLoading ? "Conectando…" : (player.errorMessage ?? "En Vivo • HD"))
                     .font(.system(size: 12))
@@ -160,6 +164,7 @@ struct FullPlayerView: View {
                 }
             }
 
+            // Main Playback Controls
             HStack(spacing: 28) {
                 Button(action: { store.toggleFavorite(station) }) {
                     Image(systemName: isFav ? "heart.fill" : "heart")

@@ -34,6 +34,7 @@ final class FavoritesStore: ObservableObject {
         }
     }
 
+    // MARK: - Favoritas
     func isFavorite(_ id: Int) -> Bool {
         favorites.contains { $0.id == id }
     }
@@ -54,6 +55,7 @@ final class FavoritesStore: ObservableObject {
         return nowFav
     }
 
+    // MARK: - Recientes
     func addRecentStation(_ id: Int) {
         guard id > 0 else { return }
         var current = recentIds.filter { $0 != id }
@@ -67,6 +69,7 @@ final class FavoritesStore: ObservableObject {
         defaults.set([], forKey: "recent_ids")
     }
 
+    // MARK: - Última emisora (Auto-Play)
     func saveLastPlayedStation(_ station: Station) {
         encode(station, key: "last_played_station")
     }
@@ -75,6 +78,7 @@ final class FavoritesStore: ObservableObject {
         decode(Station.self, key: "last_played_station")
     }
 
+    // MARK: - Países Recientes (máx 10 LRU)
     func setLastPlayedCountry(_ country: String) {
         let clean = country.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }
@@ -84,6 +88,7 @@ final class FavoritesStore: ObservableObject {
         defaults.set(recentCountries, forKey: "recent_countries")
     }
 
+    // MARK: - GeoIP País
     func setDetectedCountryIso(_ iso: String) {
         let clean = iso.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard !clean.isEmpty else { return }
@@ -91,6 +96,7 @@ final class FavoritesStore: ObservableObject {
         defaults.set(clean, forKey: "detected_country_iso")
     }
 
+    // MARK: - Lista Negra
     var blacklistedIds: Set<Int> {
         Set(blacklistedStations.map { $0.id })
     }

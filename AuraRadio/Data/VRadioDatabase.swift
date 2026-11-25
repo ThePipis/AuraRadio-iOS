@@ -67,6 +67,7 @@ final class VRadioDatabase {
                 .replacingOccurrences(of: "live.discoteca90.com", with: "listen.discoteca90.com")
         }
 
+        // En iOS AVPlayer no soporta .mpd nativo; usar icecast.audio directo para Mediastream (sin compuerta HLS AdsWizz)
         if u.localizedCaseInsensitiveContains("mdstrm.com") {
             if let regex = try? NSRegularExpression(pattern: "([a-f0-9]{24})"),
                let match = regex.firstMatch(in: u, range: NSRange(u.startIndex..., in: u)),

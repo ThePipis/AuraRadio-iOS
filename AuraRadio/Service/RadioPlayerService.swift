@@ -278,6 +278,7 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
         playNext()
     }
 
+    // MARK: - ICY Timed Metadata & Ad Suppression
     func metadataOutput(_ output: AVPlayerItemMetadataOutput, didOutputTimedMetadataGroups groups: [AVTimedMetadataGroup], from track: AVPlayerItemTrack?) {
         for group in groups {
             for item in group.items {
@@ -299,6 +300,7 @@ final class RadioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
         }
     }
 
+    // MARK: - Lockscreen / AirPlay / CarPlay NowPlaying Metadata
     private func loadArtworkIfNeeded(urlStr: String) {
         guard !urlStr.isEmpty, urlStr != lastArtworkUrl, let url = URL(string: urlStr) else { return }
         lastArtworkUrl = urlStr
